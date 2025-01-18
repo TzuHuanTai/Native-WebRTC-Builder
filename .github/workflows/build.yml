@@ -16,26 +16,39 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y build-essential cmake ninja-build python3
+        sudo apt install -y build-essential python3
 
-    - name: Clone WebRTC source
+    - name: Test Remote Connection
       run: |
-        WEBRTC_VERSION="${{ github.ref_name }}"
-        git clone https://webrtc.googlesource.com/src webrtc
-        cd webrtc
-        git checkout branch-heads/$WEBRTC_VERSION
-        gclient sync
+          WEBRTC_VERSION="${{ github.ref_name }}"
+          git ls-remote https://webrtc.googlesource.com/src refs/branch-heads/$WEBRTC_VERSION
 
     - name: Setup Depot Tools
       run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-          echo "export PATH=\$PATH:$(pwd)/depot_tools" >> $GITHUB_ENV
+          echo "PATH=$PATH:$(pwd)/depot_tools" >> $GITHUB_ENV
+  
+    - name: Check PATH
+      run: echo $PATH
+
+    - name: Clone WebRTC source
+      run: |
+        WEBRTC_VERSION="${{ github.ref_name }}"
+        mkdir webrtc
+        cd webrtc
+        fetch --nohooks webrtc
+        cd src
+        build/linux/sysroot_scripts/install-sysroot.py --arch=arm64
+        git fetch origin refs/branch-heads/$WEBRTC_VERSION:refs/heads/branch-heads/$WEBRTC_VERSION
+        git checkout branch-heads/$WEBRTC_VERSION
+        git clean -df
+        gclient sync -D --force --reset --with_branch_heads --no-history
 
     - name: Build WebRTC
       env:
         PATH: ${{ env.PATH }}
       run: |
-        cd webrtc
+        cd webrtc/src
         mkdir -p out/Release
         gn gen out/Release --args="
             target_os=\"linux\" 
@@ -60,18 +73,15 @@ jobs:
     - name: Organize Output
       run: |
           mkdir -p include
-          rsync -amv --include=*/ --include=*.h --include=*.hpp --exclude=* webrtc/ include/
+          rsync -amv --include=*/ --include=*.h --include=*.hpp --exclude=* webrtc/src/ include/
           mkdir -p lib
-          cp webrtc/out/Release/obj/libwebrtc.a lib/
+          cp webrtc/src/out/Release/obj/libwebrtc.a lib/
 
     - name: Create release
       run: |
-        cd webrtc/out/Release
-        tar -czvf webrtc-${{ matrix.os }}-arm64.tar.gz include lib
+        tar -czvf libwebrtc-arm64.tar.gz include lib
 
     - name: Upload Release to GitHub
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
-        files: webrtc/out/Release/webrtc-${{ github.ref_name }}.tar.gz
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        files: libwebrtc-arm64.tar.gz
