@@ -1,0 +1,77 @@
+name: Build WebRTC
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential cmake ninja-build python3
+
+    - name: Clone WebRTC source
+      run: |
+        WEBRTC_VERSION="${{ github.ref_name }}"
+        git clone https://webrtc.googlesource.com/src webrtc
+        cd webrtc
+        git checkout branch-heads/$WEBRTC_VERSION
+        gclient sync
+
+    - name: Setup Depot Tools
+      run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "export PATH=\$PATH:$(pwd)/depot_tools" >> $GITHUB_ENV
+
+    - name: Build WebRTC
+      env:
+        PATH: ${{ env.PATH }}
+      run: |
+        cd webrtc
+        mkdir -p out/Release
+        gn gen out/Release --args="
+            target_os=\"linux\" 
+            target_cpu=\"arm64\" 
+            is_debug=false 
+            rtc_include_tests=false 
+            rtc_use_x11=false 
+            rtc_use_h264=true 
+            rtc_use_pipewire=false 
+            use_rtti=true 
+            use_glib=false 
+            use_custom_libcxx=false 
+            rtc_build_tools=false 
+            rtc_build_examples=false 
+            is_component_build=false 
+            is_component_ffmpeg=true 
+            ffmpeg_branding=\"Chrome\" 
+            proprietary_codecs=true 
+            clang_use_chrome_plugins=false"
+        ninja -C out/Release
+
+    - name: Organize Output
+      run: |
+          mkdir -p include
+          rsync -amv --include=*/ --include=*.h --include=*.hpp --exclude=* webrtc/ include/
+          mkdir -p lib
+          cp webrtc/out/Release/obj/libwebrtc.a lib/
+
+    - name: Create release
+      run: |
+        cd webrtc/out/Release
+        tar -czvf webrtc-${{ matrix.os }}-arm64.tar.gz include lib
+
+    - name: Upload Release to GitHub
+      uses: softprops/action-gh-release@v1
+      with:
+        files: webrtc/out/Release/webrtc-${{ github.ref_name }}.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
