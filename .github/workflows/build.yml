@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     steps:
     - name: Free up disk space on runner
@@ -60,6 +60,7 @@ jobs:
         git checkout branch-heads/$WEBRTC_VERSION
         git clean -df
         gclient sync -D --force --reset --with_branch_heads --no-history
+        # build/install-build-deps.sh
 
     - name: Build WebRTC
       env:
